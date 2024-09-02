@@ -2,21 +2,34 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <set>
+#include <map>
 #include <iostream>
 #include <regex>
 #include "word.cpp"
 #include <assert.h>
+
+template <typename T> 
+struct CustomComparator{
+    const bool operator()(T a, T b) const {
+        if(a.size()!=b.size()){
+            return a.size()>b.size();
+        }
+        return std::less<T>()(a,b);
+    }
+};
 
 #define set_iter std::__tree_const_iterator<std::string, std::__tree_node<std::string, void *> *, long>
 class GridObject {
     int n; 
     std::vector<std::vector<char>> grid; 
     std::vector<std::vector<std::vector<char>>> maxGrids; 
+    std::vector<std::vector<std::vector<char>>> maxIntersectGrids; 
     std::vector<std::vector<WordSlot*>> slots;
     std::unordered_map<int,WordSlot*> acrossSlots; 
     std::unordered_map<int,WordSlot*> downSlots;
     int minWordsLeft; 
-    std::set<std::string> allWords;
+    int maxIntersects; 
+    std::set<std::string,CustomComparator<std::string>> allWords;
 
     std::vector<std::vector<std::pair<int,int>>> findSlots(){
         std::vector<std::vector<std::pair<int,int>>> clueMarkers(this->n, std::vector<std::pair<int,int>>(this->n, std::pair<int,int>(0,0))); 
@@ -70,14 +83,12 @@ class GridObject {
 
                     acrossSlot->addIntersectingWord(downSlot,acrossIntersection);
                     downSlot->addIntersectingWord(acrossSlot,downIntersection);
-
-                    // std::cout<<"Intersection at "<<r<<","<<c<<" between clues "<<acrossSlot->getSlotStr()<<" and "<<downSlot->getSlotStr()<<"\n";
                 }
             }
         }
     }
 
-    void insertWordInSlot(std::string word, WordSlot* slot){
+    int insertWordInSlot(std::string word, WordSlot* slot){
         assert(word.length() == slot->getLength());
         assert(slot->fitsWord(word));
         int startIdx = slot->getStartIdx();
@@ -88,7 +99,8 @@ class GridObject {
         for(int i = 0; i < word.length(); i++){
             grid[startRow+i*dy][startCol+i*dx] = word[i];
         }
-        slot->updateState(word);
+        int intersects = slot->updateState(word);
+        return intersects;
     }
 
     void replaceStateOfSlot(std::string state, WordSlot* slot){
@@ -101,28 +113,40 @@ class GridObject {
         for(int i = 0; i < state.length(); i++){
             grid[startRow+i*dy][startCol+i*dx] = state[i]=='.'?' ':state[i];
         }
-        slot->updateState(state);
+        slot->replaceState(state);
     }
 
     // set iterator type: std::__tree_const_iterator<std::string, std::__tree_node<std::string, void *> *, long>
-    void backTrack(int wordsLeft, set_iter begin_it){
-        if(minWordsLeft==0)return;
+    void backTrack(int wordsLeft, set_iter begin_it, int intersects){
+        if(wordsLeft==0){
+            printGrid(this->grid);
+            std::cout<<"\n";
+        }
         for(auto it = begin_it; it != allWords.end();it++){
             std::string word = *it;
             for(WordSlot* slot: slots[word.length()]){
                 if(slot->fitsWord(word)){
                     std::string oldState = slot->getState();
-                    insertWordInSlot(word,slot);
-                    if(wordsLeft-1< minWordsLeft){
-                        this->maxGrids.clear();
+                    int newIntersects = insertWordInSlot(word,slot);
+                    if(maxIntersects < intersects+newIntersects){
+                        this->maxIntersects = intersects+newIntersects;
+                        // std::cout<<this->maxIntersects<<"Intersects\n";
+                        this->maxIntersectGrids.clear();
                     }
-                    if(wordsLeft-1 <= minWordsLeft){
-                        printGrid();
-                        std::cout<<"\n";
-                        minWordsLeft = wordsLeft-1;
+                    if(maxIntersects <= intersects+newIntersects){
+                        this->maxIntersectGrids.push_back(this->grid);
+                    }
+                    if(wordsLeft-1< this->minWordsLeft){
+                        this->minWordsLeft = wordsLeft-1;
+                        this->maxGrids.clear();
+                        // std::cout<<this->minWordsLeft<<" Words left to fill\n";
+                    }
+                    if(wordsLeft-1 <= this->minWordsLeft){
+                        // printGrid(this->grid);
+                        // std::cout<<"\n";
                         this->maxGrids.push_back(this->grid);
                     }
-                    backTrack(wordsLeft-1,std::next(it));
+                    backTrack(wordsLeft-1,std::next(it),intersects+newIntersects);
                     replaceStateOfSlot(oldState,slot);
                 }
             }
@@ -145,24 +169,25 @@ public:
         findIntersections(clueMarkers);
     }
 
-    void printGrid(){
-        int a = this->n;
+    void printGrid(std::vector<std::vector<char>> grid){
+        int a = grid.size();
         for(int r = 0; r<a; r++){
             for(int c = 0; c<a; c++){
-                std::cout<<(this->grid[r][c]);
+                std::cout<<(grid[r][c]);
             }
             std::cout<<std::endl;
         }
     }
     void printMaxGrids(){
         int a = this->n;
+        std::cout<<"Max Fills: "<<maxIntersects<<"\n";
         for(std::vector<std::vector<char>> maxGrid: maxGrids){
-            for(int r = 0; r<a; r++){
-                for(int c = 0; c<a; c++){
-                    std::cout<<(maxGrid[r][c]);
-                }
-                std::cout<<std::endl; 
-            }
+            printGrid(maxGrid);
+            std::cout<<"\n";
+        }
+        std::cout<<"Max Intersects: "<<maxIntersects<<"\n";
+        for(std::vector<std::vector<char>> maxGrid: maxIntersectGrids){
+            printGrid(maxGrid);
             std::cout<<"\n";
         }
     }
@@ -187,11 +212,22 @@ public:
     }
 
     void printSlots(){
+        std::cout<<"Across Slots: ";  
+        std::map<int,int> clueLengths; 
         for(std::pair<int, WordSlot*> p : acrossSlots){
-            std::cout<<p.second->getSlotStr()<<": "<<p.second->getState()<<"\n";
+            std::cout<<p.second->getSlotStr()<<": "<<p.second->getLength()<<", ";
+            clueLengths[p.second->getLength()]++;
         }
+        std::cout<<"\n";
+        std::cout<<"Down Slots: ";
         for(std::pair<int, WordSlot*> p : downSlots){
-            std::cout<<p.second->getSlotStr()<<": "<<p.second->getState()<<"\n";
+            std::cout<<p.second->getSlotStr()<<": "<<p.second->getLength()<<", ";
+            clueLengths[p.second->getLength()]++;
+        }
+        std::cout<<"\n";
+        std::cout<<"Clue Lengths: ";
+        for(std::pair<int,int> p : clueLengths){
+            std::cout<<p.first<<": "<<p.second<<", ";
         }
     }
     
@@ -200,65 +236,8 @@ public:
             if(slots.size()>word.size()&&slots[word.size()].size()>0)this->allWords.insert(word);
         }
         this->minWordsLeft = std::min(allWords.size(),acrossSlots.size() + downSlots.size());
-        // this->minWordsLeft = std::min(allWords.size(),acrossSlots.size() + downSlots.size());
-        backTrack(this->minWordsLeft,allWords.begin());
+
+        backTrack(this->minWordsLeft,allWords.begin(),0);
         printMaxGrids();
     }
 };
-// later: dont see all words, only the right size
-int main(){
-    std::vector<std::string> gridStrs{
-        "      #    ",
-        " # # # # # ",
-        "     #     ",
-        " ### # # # ",
-        "   #      #",
-        " # # # # # ",
-        "#      #   ",
-        " # # # ### ",
-        "     #     ",
-        " # # # # # ",
-        "    #      "
-    };
-    // std::vector<std::string> gridStrs{
-    //     "      # #      ",
-    //     "# # # # # # # #",
-    //     "        #      ",
-    //     "# # # # # # # #",
-    //     "###            ",
-    //     "# # # # # ### #",
-    //     "    ###        ",
-    //     "# # # # # # # #",
-    //     "        ###    ",
-    //     "# ### # # # # #",
-    //     "            ###",
-    //     "# # # # # # # #",
-    //     "      #        ",
-    //     "# # # # # # # #",
-    //     "      # #      "
-    // };
-    // std::vector<std::string> gridStrs{
-    //     "# #",
-    //     "   ",
-    //     "# #"
-    //     };
-    // std::vector<std::string> ws{"DENNIS","BARD","ATTIC","NOTES","ERR","MURDER","UNCLOG","PHI","SMART","NEIGH","DUKE","SLIPUP","DRAWER","NUT","INCOMPLETE","ANTWERP","DOSS","UNORIGINAL","RANSACK","BISHOP","USED","IMP"};
-    std::vector<std::string> ws{"AMUSED","SURVEY","INKLINGS","PROMPT","COLLABORATED","MINI","IDEALIST","STANDOFF","NOON","FISHANDCHIPS","QUINCE","INSPIRED","SEWERS","DWELLS","MINT","SELECTION","DANGLE","DISSATISFACTION","SUPPOSED","EXPRESSION","DISTRIBUTE","POINTERS","KISSED", "HINGE","ZEAL"};
-    // std::vector<std::string> ws{"ABA", "DBD"};
-    GridObject grid(gridStrs);
-    grid.fitWords(ws);
-    // grid.printGrid();
-    // grid.printSlots();
-    // grid.insertWord("ACROSS", "1A");
-    // grid.printGrid(); 
-    // grid.printSlots();
-    // grid.insertWord("ANTLER", "1D");
-    // grid.printGrid();
-    // grid.printSlots();
-    // grid.insertWord("CLUE", "16D");
-    // grid.printGrid();
-    // grid.printSlots();
-
-}
-// DENNIS BARD ATTIC NOTES ERR MURDER UNCLOG PHI SMART NEIGH DUKE SLIPUP DRAWER NUT INCOMPLETE ANTWERP DOSS UNORIGINAL RANSACK BISHOP USED IMP
-_ _ _ _ _ I N S _ 

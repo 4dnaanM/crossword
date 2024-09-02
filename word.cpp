@@ -26,7 +26,7 @@ public:
         return slotStr;
     }
     int getLength(){ 
-        return state.length(); 
+        return state.size(); 
     }
     int getStartIdx(){ 
         return startIdx; 
@@ -46,14 +46,35 @@ public:
     bool fitsWord(std::string word){
         return std::regex_match(word,std::regex("("+state+")"));
     }
-    void updateState(std::string newWord){
-        assert (this->fitsWord(state));
+    int updateState(std::string newWord){
+        if(!this->fitsWord(newWord)){
+            std::cout<<"Word"<<newWord<<" does not fit"<<this->getState()<<std::endl;
+        }
+        assert (this->fitsWord(newWord));
         this->state = newWord;
+        int intersects = 0; 
         for(std::pair<WordSlot*, int> wordidxpair : this->intersectingWords){
             WordSlot* otherWord = wordidxpair.first;
             int thisIdx = wordidxpair.second; 
             int otherIdx = otherWord->intersectingWords[this];
-            otherWord->putLetter(otherIdx, newWord[thisIdx]);
+            if(otherWord->getLetter(otherIdx) == newWord[thisIdx]){
+                intersects++;
+            }
+            else{
+                otherWord->putLetter(otherIdx, newWord[thisIdx]);
+            }
+        }
+        return intersects;
+    }
+    void replaceState(std::string oldState){
+        assert(std::regex_match(this->state,std::regex("("+oldState+")")));
+        this->state = oldState;
+        for(std::pair<WordSlot*, int> wordidxpair : this->intersectingWords){
+            WordSlot* otherWord = wordidxpair.first;
+            int thisIdx = wordidxpair.second; 
+            int otherIdx = otherWord->intersectingWords[this];
+            otherWord->putLetter(otherIdx, oldState[thisIdx]);
         }
     }
+
 };
